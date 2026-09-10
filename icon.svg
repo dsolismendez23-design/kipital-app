@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#000000"/>
+  <rect width="512" height="512" rx="96" fill="url(#g)" fill-opacity="0.18"/>
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="512" y2="512">
+      <stop offset="0" stop-color="#f7d774"/>
+      <stop offset="1" stop-color="#c9922f"/>
+    </linearGradient>
+  </defs>
+  <text x="256" y="320" font-family="Georgia, 'Times New Roman', serif" font-size="190" font-weight="700"
+        text-anchor="middle" fill="#f2b544">KI</text>
+</svg>

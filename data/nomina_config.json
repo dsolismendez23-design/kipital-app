@@ -1,0 +1,11 @@
+{
+  "ccssTrabajador": 10.67,
+  "cargasPatronales": 26.83,
+  "tramos": [
+    { "hasta": 918000, "tasa": 0 },
+    { "hasta": 1347000, "tasa": 10 },
+    { "hasta": 2364000, "tasa": 15 },
+    { "hasta": 4727000, "tasa": 20 },
+    { "hasta": null, "tasa": 25 }
+  ]
+}
