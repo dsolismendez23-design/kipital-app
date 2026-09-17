@@ -80,40 +80,73 @@ document.getElementById('run').addEventListener('click', async function () {
     else { setStep(s1, false, 'Paso 1: FALLÓ (HTTP ' + r1.status + ')', JSON.stringify(j1, null, 2)); btn.disabled = false; return; }
   } catch (e) { setStep(s1, false, 'Paso 1: error de red', String(e)); btn.disabled = false; return; }
 
-  // Paso 2: leer un archivo de datos
-  var s2 = stepEl('s2', 'Paso 2: ¿el token puede LEER data/ingresos.json?');
-  var sha = null;
+  // Paso 2: leer data/colaboradores.json (el archivo real que falla al guardar)
+  var s2 = stepEl('s2', 'Paso 2: ¿el token puede LEER data/colaboradores.json?');
+  var colabSha = null, colabContent = null;
   try {
-    var r2 = await fetch('https://api.github.com/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo) + '/contents/data/ingresos.json?ref=' + encodeURIComponent(branch), { headers: headers });
+    var r2 = await fetch('https://api.github.com/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo) + '/contents/data/colaboradores.json?ref=' + encodeURIComponent(branch), { headers: headers });
     var j2 = await r2.json().catch(function(){return null;});
-    if (r2.ok) { sha = j2.sha; setStep(s2, true, 'Paso 2: lectura OK (HTTP ' + r2.status + ')'); }
-    else if (r2.status === 404) { setStep(s2, true, 'Paso 2: archivo no existe todavía (HTTP 404) — normal si es la primera vez, no es error.'); }
+    if (r2.ok) {
+      colabSha = j2.sha;
+      colabContent = decodeURIComponent(escape(atob(j2.content.replace(/\n/g, ''))));
+      setStep(s2, true, 'Paso 2: lectura OK (HTTP ' + r2.status + ')', 'sha actual: ' + colabSha);
+    }
+    else if (r2.status === 404) { setStep(s2, true, 'Paso 2: archivo no existe todavía (HTTP 404) — normal si es la primera vez, no es error.'); colabContent = '[]'; }
     else { setStep(s2, false, 'Paso 2: FALLÓ (HTTP ' + r2.status + ')', JSON.stringify(j2, null, 2)); btn.disabled = false; return; }
   } catch (e) { setStep(s2, false, 'Paso 2: error de red', String(e)); btn.disabled = false; return; }
 
-  // Paso 3: escribir un archivo de prueba (esto es lo que falla al guardar)
-  var s3 = stepEl('s3', 'Paso 3: ¿el token puede ESCRIBIR (guardar)?');
+  // Paso 3: crear un archivo NUEVO de prueba (crear ≠ actualizar; algunos tokens permiten uno y no el otro)
+  var s3 = stepEl('s3', 'Paso 3: ¿el token puede CREAR un archivo nuevo?');
   var testPath = 'data/_diagnostico.json';
-  var putBody = { message: 'Prueba de diagnóstico KI-PITAL', content: b64(JSON.stringify({ probado: new Date().toISOString() })), branch: branch };
+  var testSha = null;
   try {
-    var r3get = await fetch('https://api.github.com/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo) + '/contents/' + testPath + '?ref=' + encodeURIComponent(branch), { headers: headers });
-    if (r3get.ok) { var j3g = await r3get.json(); putBody.sha = j3g.sha; }
     var r3 = await fetch('https://api.github.com/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo) + '/contents/' + testPath, {
-      method: 'PUT', headers: Object.assign({ 'Content-Type': 'application/json' }, headers), body: JSON.stringify(putBody)
+      method: 'PUT', headers: Object.assign({ 'Content-Type': 'application/json' }, headers),
+      body: JSON.stringify({ message: 'Prueba de diagnóstico KI-PITAL (crear)', content: b64(JSON.stringify({ probado: new Date().toISOString() })), branch: branch })
     });
     var j3 = await r3.json().catch(function(){return null;});
-    if (r3.ok) {
-      setStep(s3, true, 'Paso 3: ¡ESCRITURA OK! (HTTP ' + r3.status + ')', 'El token SÍ puede guardar datos. Limpiando archivo de prueba...');
-      // limpieza: borra el archivo de prueba
-      var newSha = j3.content.sha;
-      await fetch('https://api.github.com/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo) + '/contents/' + testPath, {
-        method: 'DELETE', headers: Object.assign({ 'Content-Type': 'application/json' }, headers),
-        body: JSON.stringify({ message: 'Limpieza de diagnóstico', sha: newSha, branch: branch })
-      }).catch(function(){});
-    } else {
-      setStep(s3, false, 'Paso 3: FALLÓ (HTTP ' + r3.status + ') — este es el problema real', JSON.stringify(j3, null, 2));
-    }
+    if (r3.ok) { testSha = j3.content.sha; setStep(s3, true, 'Paso 3: CREAR archivo nuevo OK (HTTP ' + r3.status + ')'); }
+    else { setStep(s3, false, 'Paso 3: FALLÓ (HTTP ' + r3.status + ')', JSON.stringify(j3, null, 2)); }
   } catch (e) { setStep(s3, false, 'Paso 3: error de red', String(e)); }
+
+  // Paso 4: ACTUALIZAR ese mismo archivo (esto es justo lo que hace la app al guardar)
+  var s4 = stepEl('s4', 'Paso 4: ¿el token puede ACTUALIZAR un archivo existente?');
+  if (testSha) {
+    try {
+      var r4 = await fetch('https://api.github.com/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo) + '/contents/' + testPath, {
+        method: 'PUT', headers: Object.assign({ 'Content-Type': 'application/json' }, headers),
+        body: JSON.stringify({ message: 'Prueba de diagnóstico KI-PITAL (actualizar)', content: b64(JSON.stringify({ probado: new Date().toISOString(), actualizado: true })), branch: branch, sha: testSha })
+      });
+      var j4 = await r4.json().catch(function(){return null;});
+      if (r4.ok) {
+        setStep(s4, true, 'Paso 4: ¡ACTUALIZAR OK! (HTTP ' + r4.status + ')', 'El token SÍ puede actualizar archivos existentes. Limpiando...');
+        await fetch('https://api.github.com/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo) + '/contents/' + testPath, {
+          method: 'DELETE', headers: Object.assign({ 'Content-Type': 'application/json' }, headers),
+          body: JSON.stringify({ message: 'Limpieza de diagnóstico', sha: j4.content.sha, branch: branch })
+        }).catch(function(){});
+      } else {
+        setStep(s4, false, 'Paso 4: FALLÓ (HTTP ' + r4.status + ') — este es el problema real', JSON.stringify(j4, null, 2));
+      }
+    } catch (e) { setStep(s4, false, 'Paso 4: error de red', String(e)); }
+  } else {
+    setStep(s4, false, 'Paso 4: omitido (no se pudo crear el archivo en el Paso 3)');
+  }
+
+  // Paso 5: ACTUALIZAR data/colaboradores.json con su propio contenido (sin cambiar nada) — reproduce exactamente el guardado real
+  var s5 = stepEl('s5', 'Paso 5: ¿el token puede ACTUALIZAR data/colaboradores.json? (prueba real, sin cambiar tus datos)');
+  if (colabSha && colabContent != null) {
+    try {
+      var r5 = await fetch('https://api.github.com/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo) + '/contents/data/colaboradores.json', {
+        method: 'PUT', headers: Object.assign({ 'Content-Type': 'application/json' }, headers),
+        body: JSON.stringify({ message: 'Prueba de diagnóstico KI-PITAL (colaboradores, mismo contenido)', content: b64(colabContent), branch: branch, sha: colabSha })
+      });
+      var j5 = await r5.json().catch(function(){return null;});
+      if (r5.ok) setStep(s5, true, 'Paso 5: ¡OK! (HTTP ' + r5.status + ') — el guardado de colaboradores debería funcionar ahora en la app.');
+      else setStep(s5, false, 'Paso 5: FALLÓ (HTTP ' + r5.status + ') — este es el problema real', JSON.stringify(j5, null, 2));
+    } catch (e) { setStep(s5, false, 'Paso 5: error de red', String(e)); }
+  } else {
+    setStep(s5, false, 'Paso 5: omitido (no se pudo leer data/colaboradores.json en el Paso 2)');
+  }
 
   btn.disabled = false;
 });
