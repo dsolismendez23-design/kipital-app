@@ -62,6 +62,7 @@
     movKind: null, // 'ingresos' | 'egresos' (formulario de movimiento)
     period: defaultPeriod(),
     quickPeriod: 'month',
+    movFilterTipo: { ingresos: '', egresos: '' },
     planillaDraft: null,
     toast: null,
     configVerifying: false,
@@ -541,13 +542,15 @@
     var salario = parseFloat(fd.get('salario'));
     var tipoPago = fd.get('tipoPago') || 'Mensual';
     var fechaIngreso = fd.get('fechaIngreso');
+    var cuentaBancaria = (fd.get('cuentaBancaria') || '').trim();
     var estado = fd.get('estado') === 'on' ? 'activo' : 'inactivo';
+    var fechaSalida = estado === 'inactivo' ? (fd.get('fechaSalida') || '').trim() : '';
     if (!nombre || !puesto || isNaN(salario) || salario <= 0 || !fechaIngreso) {
       showToast('Completa al menos nombre, puesto, salario y fecha de ingreso.', true);
       return;
     }
     var editingId = state.editingId;
-    var payload = { nombre: nombre, cedula: cedula, telefono: telefono, email: email, direccion: direccion, puesto: puesto, salario: salario, tipoPago: tipoPago, fechaIngreso: fechaIngreso, estado: estado };
+    var payload = { nombre: nombre, cedula: cedula, telefono: telefono, email: email, direccion: direccion, puesto: puesto, salario: salario, tipoPago: tipoPago, fechaIngreso: fechaIngreso, cuentaBancaria: cuentaBancaria, estado: estado, fechaSalida: fechaSalida };
     mutateCollection('colaboradores', function (list) {
       if (editingId) {
         return list.map(function (c) { return c.id === editingId ? Object.assign({}, c, payload) : c; });
@@ -894,6 +897,72 @@
     }
   }
 
+  // ---------- PDF de reporte financiero (Inicio) ----------
+
+  function buildFinanceReportPdfDoc() {
+    var ingresos = filterByPeriod(state.data.ingresos.value || []);
+    var egresos = filterByPeriod(state.data.egresos.value || []);
+    var totalIn = ingresos.reduce(function (s, g) { return s + (Number(g.monto) || 0); }, 0);
+    var totalOut = egresos.reduce(function (s, g) { return s + (Number(g.monto) || 0); }, 0);
+    var porTipoIn = groupBy(ingresos, 'tipo');
+    var porTipoOut = groupBy(egresos, 'tipo');
+    var periodoLabel = (state.period.desde || state.period.hasta)
+      ? ('Período: ' + (state.period.desde ? formatDateDisplay(state.period.desde) : 'inicio') + ' a ' + (state.period.hasta ? formatDateDisplay(state.period.hasta) : 'hoy'))
+      : 'Período: todos los registros';
+
+    var doc = new jspdf.jsPDF();
+    var y = 20;
+    var pageH = 280;
+    function ensureSpace(need) { if (y + need > pageH) { doc.addPage(); y = 20; } }
+
+    doc.setFontSize(16);
+    doc.text('KI-PITAL - Reporte financiero', 14, y); y += 8;
+    doc.setFontSize(10);
+    doc.text(periodoLabel, 14, y); y += 6;
+    doc.text('Generado: ' + new Date().toLocaleString('es-CR'), 14, y); y += 12;
+
+    doc.setFontSize(12);
+    doc.text('Total ingresos: ' + formatMoneyPdf(totalIn), 14, y); y += 7;
+    doc.text('Total egresos: ' + formatMoneyPdf(totalOut), 14, y); y += 7;
+    doc.text('Balance: ' + formatMoneyPdf(totalIn - totalOut), 14, y); y += 12;
+
+    function section(title, rows) {
+      ensureSpace(14);
+      doc.setFontSize(13);
+      doc.text(title, 14, y); y += 8;
+      doc.setFontSize(10);
+      if (!rows.length) { doc.text('Sin datos en este período.', 14, y); y += 8; return; }
+      rows.forEach(function (r) {
+        ensureSpace(7);
+        doc.text(String(r.name).slice(0, 45) + '  (' + r.count + ')', 14, y);
+        doc.text(formatMoneyPdf(r.total), 196, y, { align: 'right' });
+        y += 6.5;
+      });
+      y += 6;
+    }
+
+    section('Ingresos por tipo', porTipoIn);
+    section('Egresos por tipo', porTipoOut);
+
+    return doc;
+  }
+
+  function downloadOrShareFinancePdf() {
+    if (typeof jspdf === 'undefined') {
+      showToast('No se pudo generar el PDF (sin conexión a internet la primera vez).', true);
+      return;
+    }
+    var doc = buildFinanceReportPdfDoc();
+    var filename = 'kipital-reporte-' + toISODate(new Date()) + '.pdf';
+    var blob = doc.output('blob');
+    var file = new File([blob], filename, { type: 'application/pdf' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      navigator.share({ files: [file], title: 'Reporte financiero KI-PITAL', text: 'Reporte financiero KI-PITAL' }).catch(function () {});
+    } else {
+      doc.save(filename);
+    }
+  }
+
   // ---------- Render ----------
 
   function withFocusPreserved(fn) {
@@ -1012,8 +1081,10 @@
   // ---------- Inicio ----------
 
   function renderInicioTab() {
-    var ingresos = filterByPeriod(state.data.ingresos.value || []);
-    var egresos = filterByPeriod(state.data.egresos.value || []);
+    var ingresosAll = state.data.ingresos.value || [];
+    var egresosAll = state.data.egresos.value || [];
+    var ingresos = filterByPeriod(ingresosAll);
+    var egresos = filterByPeriod(egresosAll);
     var totalIn = ingresos.reduce(function (s, g) { return s + (Number(g.monto) || 0); }, 0);
     var totalOut = egresos.reduce(function (s, g) { return s + (Number(g.monto) || 0); }, 0);
     var balance = totalIn - totalOut;
@@ -1026,6 +1097,14 @@
         '<div class="stat-card balance"><div class="amount">' + escapeHtml(formatMoney(balance)) + '</div><div class="label">Balance</div></div>' +
       '</div>'
     );
+
+    html += renderLaborCostKpi(egresos, totalIn);
+    html += renderMonthlyTrend(ingresosAll, egresosAll);
+
+    if (ingresosAll.length || egresosAll.length) {
+      html += '<div class="btn-row" style="margin-bottom:12px;"><button type="button" class="btn btn-secondary" data-action="download-finance-pdf">&#128196; Descargar reporte financiero (PDF)</button></div>';
+    }
+
     html += (
       '<div class="card" style="text-align:center;padding:18px;cursor:pointer;" data-action="tab" data-tab="ingresos">' +
         '<div style="font-size:28px;">&#128176;</div>' +
@@ -1045,6 +1124,76 @@
     );
     html += renderInstallCard();
     return html;
+  }
+
+  function laborCostTag(pct) {
+    if (pct <= 20) return { cls: 'bajo', label: 'Bajo' };
+    if (pct <= 32) return { cls: 'sano', label: 'Saludable' };
+    if (pct <= 45) return { cls: 'alto', label: 'Alto' };
+    return { cls: 'critico', label: 'Crítico' };
+  }
+
+  function renderLaborCostKpi(egresosPeriodo, totalIngresos) {
+    var costoPlanilla = egresosPeriodo.reduce(function (s, g) {
+      return (g.tipo === 'Salarios' || g.tipo === 'CCSS') ? s + (Number(g.monto) || 0) : s;
+    }, 0);
+    if (!totalIngresos && !costoPlanilla) return '';
+    var pct = totalIngresos > 0 ? (costoPlanilla / totalIngresos) * 100 : (costoPlanilla > 0 ? 100 : 0);
+    var tag = laborCostTag(pct);
+    return (
+      '<div class="kpi-card">' +
+        '<div class="kpi-top">' +
+          '<div><div class="kpi-value">' + pct.toFixed(1) + '%</div><div class="label" style="margin-top:2px;">Costo de planilla sobre ingresos</div></div>' +
+          '<span class="kpi-tag ' + tag.cls + '">' + tag.label + '</span>' +
+        '</div>' +
+        '<div class="kpi-desc">Salarios + CCSS (' + escapeHtml(formatMoney(costoPlanilla)) + ') del período, frente a los ingresos del mismo período. Como referencia general en comercio y servicios, un costo de planilla entre 20% y 32% de los ingresos suele considerarse saludable; valores más altos conviene revisarlos.</div>' +
+      '</div>'
+    );
+  }
+
+  function lastNMonths(n) {
+    var now = new Date();
+    var out = [];
+    for (var i = n - 1; i >= 0; i--) {
+      var d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      out.push(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'));
+    }
+    return out;
+  }
+
+  function renderMonthlyTrend(ingresosAll, egresosAll) {
+    if (!ingresosAll.length && !egresosAll.length) return '';
+    var months = lastNMonths(6);
+    var inByMonth = {}, outByMonth = {};
+    months.forEach(function (m) { inByMonth[m] = 0; outByMonth[m] = 0; });
+    ingresosAll.forEach(function (g) { var m = (g.fecha || '').slice(0, 7); if (m in inByMonth) inByMonth[m] += Number(g.monto) || 0; });
+    egresosAll.forEach(function (g) { var m = (g.fecha || '').slice(0, 7); if (m in outByMonth) outByMonth[m] += Number(g.monto) || 0; });
+    var max = 0;
+    months.forEach(function (m) { max = Math.max(max, inByMonth[m], outByMonth[m]); });
+    if (max <= 0) return '';
+
+    var cols = months.map(function (m) {
+      var hIn = Math.max(2, Math.round((inByMonth[m] / max) * 92));
+      var hOut = Math.max(2, Math.round((outByMonth[m] / max) * 92));
+      var shortLabel = monthLabel(m).split(' ')[0].slice(0, 3);
+      return (
+        '<div class="trend-col">' +
+          '<div class="trend-bars">' +
+            '<div class="trend-bar ingreso" style="height:' + hIn + 'px" title="Ingresos ' + escapeHtml(monthLabel(m)) + ': ' + escapeHtml(formatMoney(inByMonth[m])) + '"></div>' +
+            '<div class="trend-bar egreso" style="height:' + hOut + 'px" title="Egresos ' + escapeHtml(monthLabel(m)) + ': ' + escapeHtml(formatMoney(outByMonth[m])) + '"></div>' +
+          '</div>' +
+          '<div class="trend-label">' + escapeHtml(shortLabel) + '</div>' +
+        '</div>'
+      );
+    }).join('');
+
+    return (
+      '<div class="card">' +
+        '<label style="margin-top:0;">Tendencia (últimos 6 meses)</label>' +
+        '<div class="trend-chart">' + cols + '</div>' +
+        '<div class="trend-legend"><span><i class="ingreso"></i>Ingresos</span><span><i class="egreso"></i>Egresos</span></div>' +
+      '</div>'
+    );
   }
 
   function renderPeriodPicker() {
@@ -1070,22 +1219,44 @@
 
   function renderMovTab(kind) {
     var raw = state.data[kind].value || [];
-    var filtered = filterByPeriod(raw).slice().sort(function (a, b) { return (b.fecha || '').localeCompare(a.fecha || ''); });
+    var byPeriod = filterByPeriod(raw);
+    var porTipo = groupBy(byPeriod, 'tipo');
+    var maxTipo = porTipo.length ? porTipo[0].total : 0;
+    var activeTipo = state.movFilterTipo[kind];
+    var filtered = (activeTipo ? byPeriod.filter(function (g) { return g.tipo === activeTipo; }) : byPeriod)
+      .slice().sort(function (a, b) { return (b.fecha || '').localeCompare(a.fecha || ''); });
     var total = filtered.reduce(function (s, g) { return s + (Number(g.monto) || 0); }, 0);
-    var porTipo = groupBy(filtered, 'tipo');
 
     var html = renderPeriodPicker();
+
+    if (porTipo.length > 1) {
+      var tipos = tiposFor(kind);
+      html += '<div class="filter-row"><select id="mf-tipo" data-kind="' + kind + '"><option value="">Todos los tipos</option>' +
+        tipos.map(function (t) { return '<option value="' + escapeHtml(t) + '" ' + (activeTipo === t ? 'selected' : '') + '>' + escapeHtml(t) + '</option>'; }).join('') +
+        '</select></div>';
+    }
+
     html += (
       '<div class="summary-total" style="padding-top:6px;">' +
         '<div class="amount">' + escapeHtml(formatMoney(total)) + '</div>' +
-        '<div class="label">Total de ' + (kind === 'ingresos' ? 'ingresos' : 'egresos') + ' en el período</div>' +
+        '<div class="label">Total de ' + (kind === 'ingresos' ? 'ingresos' : 'egresos') + (activeTipo ? ' · ' + escapeHtml(activeTipo) : '') + ' en el período</div>' +
       '</div>'
     );
 
     if (porTipo.length) {
       html += '<div class="card"><label style="margin-top:0;">Por tipo</label>';
       html += porTipo.map(function (r) {
-        return '<div class="report-row"><div><div class="name">' + escapeHtml(r.name) + '</div><div class="count">' + r.count + ' registro' + (r.count === 1 ? '' : 's') + '</div></div><div class="amt">' + escapeHtml(formatMoney(r.total)) + '</div></div>';
+        var pct = maxTipo ? Math.round((r.total / maxTipo) * 100) : 0;
+        var pctOfTotal = total > 0 && byPeriod.length ? Math.round((r.total / porTipo.reduce(function (s, x) { return s + x.total; }, 0)) * 100) : 0;
+        return (
+          '<div class="report-row-wrap">' +
+            '<div class="report-row" style="border:none;padding-bottom:0;">' +
+              '<div><div class="name">' + escapeHtml(r.name) + '</div><div class="count">' + r.count + ' registro' + (r.count === 1 ? '' : 's') + '</div></div>' +
+              '<div class="amt">' + escapeHtml(formatMoney(r.total)) + '<span class="bar-pct">' + pctOfTotal + '%</span></div>' +
+            '</div>' +
+            '<div class="bar-bg"><div class="bar-fill ' + (kind === 'ingresos' ? 'ingreso' : 'egreso') + '" style="width:' + pct + '%"></div></div>' +
+          '</div>'
+        );
       }).join('');
       html += '</div>';
     }
@@ -1095,7 +1266,7 @@
       return html;
     }
     if (!filtered.length) {
-      html += '<div class="empty-state"><span class="big">&#128269;</span>No hay registros en este período.</div>';
+      html += '<div class="empty-state"><span class="big">&#128269;</span>No hay registros con ese filtro en este período.</div>';
       return html;
     }
 
@@ -1153,7 +1324,8 @@
       '<div class="item-row" data-action="edit-colab" data-id="' + escapeHtml(c.id) + '">' +
         '<div class="left">' +
           '<div class="title">' + escapeHtml(c.nombre) + '</div>' +
-          '<div class="meta">' + escapeHtml(c.puesto || '') + ' · Ingreso: ' + escapeHtml(formatDateDisplay(c.fechaIngreso)) + '</div>' +
+          '<div class="meta">' + escapeHtml(c.puesto || '') + ' · Ingreso: ' + escapeHtml(formatDateDisplay(c.fechaIngreso)) +
+            (!activo && c.fechaSalida ? ' · Salida: ' + escapeHtml(formatDateDisplay(c.fechaSalida)) : '') + '</div>' +
           '<span class="badge ' + (activo ? 'on' : 'off') + '">' + (activo ? 'Activo' : 'Inactivo') + '</span>' +
         '</div>' +
         '<div class="monto">' + escapeHtml(formatMoney(c.salario)) + '</div>' +
@@ -1291,9 +1463,16 @@
             '<label for="c-fecha-ingreso">Fecha de ingreso</label>' +
             '<input id="c-fecha-ingreso" name="fechaIngreso" type="date" required value="' + escapeHtml(editing ? editing.fechaIngreso : '') + '"/>' +
 
+            '<label for="c-cuenta">Cuenta bancaria (para depósito de salario)</label>' +
+            '<input id="c-cuenta" name="cuentaBancaria" type="text" placeholder="IBAN o número de cuenta" value="' + escapeHtml(editing ? (editing.cuentaBancaria || '') : '') + '"/>' +
+
             '<div class="checkbox-row">' +
               '<input id="c-estado" name="estado" type="checkbox" ' + (activo ? 'checked' : '') + '/>' +
               '<label for="c-estado">Colaborador activo</label>' +
+            '</div>' +
+            '<div id="c-fecha-salida-row" ' + (activo ? 'hidden' : '') + '>' +
+              '<label for="c-fecha-salida">Fecha de salida</label>' +
+              '<input id="c-fecha-salida" name="fechaSalida" type="date" value="' + escapeHtml(editing ? (editing.fechaSalida || '') : '') + '"/>' +
             '</div>' +
 
             '<div class="btn-row" style="margin-top:22px;">' +
@@ -1403,6 +1582,7 @@
           '<h2>Generar planilla</h2>' +
         '</div>' +
         '<div class="screen-body">' +
+          '<p style="color:var(--text-dim);font-size:12.5px;">La app trae el salario de cada colaborador activo. "Bruto" es antes de rebajos; "Neto" es lo que realmente recibe cada persona, después de restar CCSS, renta y otras deducciones.</p>' +
           '<div class="card">' +
             '<label style="margin-top:0;">Período (mes)</label>' +
             '<input id="pf-periodo" type="month" value="' + escapeHtml(draft.periodoMes) + '"/>' +
@@ -1490,6 +1670,18 @@
         '<div class="screen-body">' +
           '<p style="color:var(--text-dim);font-size:13px;">Conecta esta app al repositorio de GitHub donde se guardan los datos de KI-PITAL. Solo se hace una vez por dispositivo.</p>' +
 
+          '<details class="help-box">' +
+            '<summary>¿Cómo consigo el token de acceso?</summary>' +
+            '<ol>' +
+              '<li>Entra a <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">github.com/settings/personal-access-tokens/new</a> (con la cuenta dueña del repositorio).</li>' +
+              '<li>Ponle un nombre, ej. "KI-PITAL app".</li>' +
+              '<li>En <b>Repository access</b> elige "Only select repositories" y selecciona el repositorio de esta app.</li>' +
+              '<li>En <b>Permissions → Repository permissions</b> busca <b>Contents</b> (a veces aparece como "Code") y ponlo en <b>Read and write</b>.</li>' +
+              '<li>Genera el token y cópialo — empieza con <code>github_pat_...</code>. No se vuelve a mostrar.</li>' +
+              '<li>Pégalo abajo en el campo "Token de acceso personal", en el formulario manual (no en el campo de código compartido).</li>' +
+            '</ol>' +
+          '</details>' +
+
           '<div class="card">' +
             '<label style="margin-top:0;">¿Alguien del equipo ya te compartió un código de configuración?</label>' +
             '<input id="c-paste" type="text" placeholder="Pega aquí el código"/>' +
@@ -1569,6 +1761,7 @@
     else if (action === 'copy-config') copyConfigForSharing();
     else if (action === 'paste-config') usePastedConfig();
     else if (action === 'install-app') installApp();
+    else if (action === 'download-finance-pdf') downloadOrShareFinancePdf();
   });
 
   appEl.addEventListener('submit', function (e) {
@@ -1601,6 +1794,11 @@
 
   appEl.addEventListener('change', function (e) {
     if (e.target.id === 'pf-periodo') planillaPeriodoChanged(e.target.value);
+    else if (e.target.id === 'mf-tipo') { state.movFilterTipo[e.target.dataset.kind] = e.target.value; render(); }
+    else if (e.target.id === 'c-estado') {
+      var row = document.getElementById('c-fecha-salida-row');
+      if (row) row.hidden = e.target.checked;
+    }
   });
 
   // ---------- Arranque ----------
