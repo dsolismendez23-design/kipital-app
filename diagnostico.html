@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>KI-PITAL · Diagnóstico</title>
+<meta name="theme-color" content="#000000" />
+<style>
+  :root{ --bg:#000; --card:#141210; --border:#3a2f12; --text:#f3d98a; --dim:#a98f52; --accent:#f2b544; --ok:#4caf7d; --err:#ff6b6b; }
+  *{box-sizing:border-box;}
+  body{background:var(--bg);color:var(--text);font-family:-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:16px;max-width:520px;margin-inline:auto;}
+  h1{font-size:18px;margin:0 0 4px;}
+  p.sub{color:var(--dim);font-size:13px;margin:0 0 18px;}
+  label{display:block;font-size:12.5px;color:var(--dim);margin:12px 0 5px;font-weight:600;}
+  input{width:100%;background:#0c0c0c;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:11px;font-size:15px;}
+  button{width:100%;background:var(--accent);color:#221a03;border:none;border-radius:10px;padding:13px;font-size:15px;font-weight:700;margin-top:18px;cursor:pointer;}
+  button:disabled{opacity:.5;}
+  .step{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:12px;font-size:13px;}
+  .step .title{font-weight:700;margin-bottom:4px;}
+  .step.pending{color:var(--dim);}
+  .step.ok{border-color:rgba(76,175,125,.5);}
+  .step.ok .title{color:var(--ok);}
+  .step.fail{border-color:rgba(255,107,107,.5);}
+  .step.fail .title{color:var(--err);}
+  .step pre{white-space:pre-wrap;word-break:break-word;background:#0c0c0c;padding:8px;border-radius:6px;margin:6px 0 0;font-size:11.5px;color:var(--dim);}
+  a{color:var(--accent);}
+</style>
+</head>
+<body>
+  <h1>Diagnóstico de conexión</h1>
+  <p class="sub">Prueba paso a paso la conexión con GitHub usando tus datos reales, sin tocar los datos de la app. El token nunca sale de este celular: se envía directo a GitHub.</p>
+
+  <label>Usuario u organización</label>
+  <input id="owner" placeholder="dsolismendez23-design" value="dsolismendez23-design" />
+  <label>Repositorio</label>
+  <input id="repo" placeholder="kipital-app" value="kipital-app" />
+  <label>Rama</label>
+  <input id="branch" placeholder="main" value="main" />
+  <label>Token de acceso personal</label>
+  <input id="token" type="password" placeholder="github_pat_..." />
+
+  <button id="run">Probar conexión</button>
+
+  <div id="results"></div>
+
+<script>
+function b64(str){var b=new TextEncoder().encode(str),s='';b.forEach(function(x){s+=String.fromCharCode(x);});return btoa(s);}
+
+function stepEl(id, title){
+  var el = document.createElement('div');
+  el.className = 'step pending';
+  el.id = id;
+  el.innerHTML = '<div class="title">⏳ ' + title + '</div>';
+  document.getElementById('results').appendChild(el);
+  return el;
+}
+function setStep(el, ok, title, detail){
+  el.className = 'step ' + (ok ? 'ok' : 'fail');
+  el.innerHTML = '<div class="title">' + (ok ? '✅ ' : '❌ ') + title + '</div>' + (detail ? '<pre>' + detail.replace(/</g,'&lt;') + '</pre>' : '');
+}
+
+document.getElementById('run').addEventListener('click', async function () {
+  document.getElementById('results').innerHTML = '';
+  var btn = document.getElementById('run');
+  btn.disabled = true;
+  var owner = document.getElementById('owner').value.trim();
+  var repo = document.getElementById('repo').value.trim();
+  var branch = document.getElementById('branch').value.trim() || 'main';
+  var token = document.getElementById('token').value.trim();
+  var headers = { 'Accept':'application/vnd.github+json', 'Authorization':'Bearer ' + token, 'X-GitHub-Api-Version':'2022-11-28' };
+
+  if (!owner || !repo || !token) { alert('Completa usuario, repositorio y token.'); btn.disabled = false; return; }
+
+  // Paso 1: el repositorio existe y el token lo puede ver
+  var s1 = stepEl('s1', 'Paso 1: ¿el token puede VER el repositorio?');
+  try {
+    var r1 = await fetch('https://api.github.com/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo), { headers: headers });
+    var j1 = await r1.json().catch(function(){return null;});
+    if (r1.ok) setStep(s1, true, 'Paso 1: repositorio visible (HTTP ' + r1.status + ')', 'Nombre: ' + (j1 && j1.full_name) + '\nPrivado: ' + (j1 && j1.private));
+    else { setStep(s1, false, 'Paso 1: FALLÓ (HTTP ' + r1.status + ')', JSON.stringify(j1, null, 2)); btn.disabled = false; return; }
+  } catch (e) { setStep(s1, false, 'Paso 1: error de red', String(e)); btn.disabled = false; return; }
+
+  // Paso 2: leer un archivo de datos
+  var s2 = stepEl('s2', 'Paso 2: ¿el token puede LEER data/ingresos.json?');
+  var sha = null;
+  try {
+    var r2 = await fetch('https://api.github.com/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo) + '/contents/data/ingresos.json?ref=' + encodeURIComponent(branch), { headers: headers });
+    var j2 = await r2.json().catch(function(){return null;});
+    if (r2.ok) { sha = j2.sha; setStep(s2, true, 'Paso 2: lectura OK (HTTP ' + r2.status + ')'); }
+    else if (r2.status === 404) { setStep(s2, true, 'Paso 2: archivo no existe todavía (HTTP 404) — normal si es la primera vez, no es error.'); }
+    else { setStep(s2, false, 'Paso 2: FALLÓ (HTTP ' + r2.status + ')', JSON.stringify(j2, null, 2)); btn.disabled = false; return; }
+  } catch (e) { setStep(s2, false, 'Paso 2: error de red', String(e)); btn.disabled = false; return; }
+
+  // Paso 3: escribir un archivo de prueba (esto es lo que falla al guardar)
+  var s3 = stepEl('s3', 'Paso 3: ¿el token puede ESCRIBIR (guardar)?');
+  var testPath = 'data/_diagnostico.json';
+  var putBody = { message: 'Prueba de diagnóstico KI-PITAL', content: b64(JSON.stringify({ probado: new Date().toISOString() })), branch: branch };
+  try {
+    var r3get = await fetch('https://api.github.com/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo) + '/contents/' + testPath + '?ref=' + encodeURIComponent(branch), { headers: headers });
+    if (r3get.ok) { var j3g = await r3get.json(); putBody.sha = j3g.sha; }
+    var r3 = await fetch('https://api.github.com/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo) + '/contents/' + testPath, {
+      method: 'PUT', headers: Object.assign({ 'Content-Type': 'application/json' }, headers), body: JSON.stringify(putBody)
+    });
+    var j3 = await r3.json().catch(function(){return null;});
+    if (r3.ok) {
+      setStep(s3, true, 'Paso 3: ¡ESCRITURA OK! (HTTP ' + r3.status + ')', 'El token SÍ puede guardar datos. Limpiando archivo de prueba...');
+      // limpieza: borra el archivo de prueba
+      var newSha = j3.content.sha;
+      await fetch('https://api.github.com/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo) + '/contents/' + testPath, {
+        method: 'DELETE', headers: Object.assign({ 'Content-Type': 'application/json' }, headers),
+        body: JSON.stringify({ message: 'Limpieza de diagnóstico', sha: newSha, branch: branch })
+      }).catch(function(){});
+    } else {
+      setStep(s3, false, 'Paso 3: FALLÓ (HTTP ' + r3.status + ') — este es el problema real', JSON.stringify(j3, null, 2));
+    }
+  } catch (e) { setStep(s3, false, 'Paso 3: error de red', String(e)); }
+
+  btn.disabled = false;
+});
+</script>
+</body>
+</html>
