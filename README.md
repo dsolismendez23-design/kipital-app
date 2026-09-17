@@ -10,9 +10,9 @@ Fondo negro, letras en dorado.
 - **Egresos**: fecha, tipo (Alquiler, Salarios, CCSS, Agua, Luz, Internet, Insumos, Otros) y monto. Incluye filtro por período y desglose por tipo.
 - **RRHH → Colaboradores**: datos personales (nombre, cédula, teléfono, correo, dirección), puesto, salario, tipo de pago, fecha de ingreso y estado (activo/inactivo).
 - **RRHH → Nómina**: cálculo y procesamiento de planillas.
-  - **Parámetros de nómina** (icono ⚙): porcentaje de CCSS del trabajador, cargas sociales patronales y tramos del impuesto sobre la renta. Vienen precargados con los valores de referencia de Costa Rica para 2026 (CCSS trabajador 10.67%, cargas patronales 26.83%) y se pueden ajustar cuando cambien por ley.
-  - **Generar planilla**: elige el mes y la fecha de pago; la app trae automáticamente a los colaboradores activos con su salario base, permite agregar bonos/horas extra y otras deducciones por persona, y calcula en vivo el salario bruto, la deducción de CCSS, el impuesto de renta, el neto a pagar y el costo patronal (incluye cargas sociales).
-  - Cada planilla guardada queda en un historial, se puede ver en detalle, descargar/compartir en PDF, y registrar automáticamente como egresos (Salarios = neto pagado, CCSS = cuota trabajador + cargas patronales, y Otros si hay renta retenida).
+  - **Parámetros de nómina** (icono ⚙): porcentaje de CCSS del trabajador y cargas sociales patronales. Vienen precargados con los valores de referencia de Costa Rica para 2026 (CCSS trabajador 10.83%, cargas patronales 26.83%) y se pueden ajustar cuando cambien por ley.
+  - **Generar planilla**: elige el mes y la fecha de pago; la app trae automáticamente a los colaboradores activos con su salario base, permite agregar bonos/horas extra y otras deducciones por persona, y calcula en vivo el salario bruto, la deducción de CCSS, el neto a pagar y el costo patronal (incluye cargas sociales).
+  - Cada planilla guardada queda en un historial, se puede ver en detalle, descargar/compartir en PDF, y registrar automáticamente como egresos (Salarios = neto pagado, CCSS = cuota trabajador + cargas patronales).
 
 ## Cómo funciona
 
@@ -63,4 +63,4 @@ La lista se actualiza sola cada 20 segundos y también al volver a abrir la app 
 - Si dos personas guardan un registro casi al mismo tiempo, la app reintenta automáticamente para no perder ninguno.
 - Eliminar un colaborador no borra las planillas ya generadas con su información.
 - "Registrar en Egresos" desde una planilla solo se puede hacer una vez por planilla, para evitar duplicar el gasto.
-- Los porcentajes de CCSS, cargas patronales y los tramos de renta son editables en RRHH → Nómina → Parámetros, ya que la ley los ajusta con el tiempo.
+- Los porcentajes de CCSS y cargas patronales son editables en RRHH → Nómina → Parámetros, ya que la ley los ajusta con el tiempo.

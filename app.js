@@ -17,15 +17,8 @@
 
   // Tarifas de referencia Costa Rica 2026 (ajustables en Configuración de nómina).
   var DEFAULT_NOMINA_CONFIG = {
-    ccssTrabajador: 10.67,
+    ccssTrabajador: 10.83,
     cargasPatronales: 26.83,
-    tramos: [
-      { hasta: 918000, tasa: 0 },
-      { hasta: 1347000, tasa: 10 },
-      { hasta: 2364000, tasa: 15 },
-      { hasta: 4727000, tasa: 20 },
-      { hasta: null, tasa: 25 }
-    ]
   };
 
   var COLLECTIONS = {
@@ -577,18 +570,7 @@
       showToast('Revisa los porcentajes de CCSS y cargas patronales.', true);
       return;
     }
-    var tramos = [];
-    for (var i = 0; i < 5; i++) {
-      var tasa = parseFloat(fd.get('tramo' + i + '_tasa'));
-      if (isNaN(tasa)) tasa = 0;
-      if (i < 4) {
-        var hasta = parseFloat(fd.get('tramo' + i + '_hasta'));
-        tramos.push({ hasta: isNaN(hasta) ? 0 : hasta, tasa: tasa });
-      } else {
-        tramos.push({ hasta: null, tasa: tasa });
-      }
-    }
-    var newConfig = { ccssTrabajador: ccssTrabajador, cargasPatronales: cargasPatronales, tramos: tramos, actualizadoEn: new Date().toISOString() };
+    var newConfig = { ccssTrabajador: ccssTrabajador, cargasPatronales: cargasPatronales, actualizadoEn: new Date().toISOString() };
     mutateCollection('nominaConfig', function () { return newConfig; }, {
       successMessage: 'Parámetros de nómina actualizados',
       onSuccess: function () { state.screen = null; },
@@ -596,7 +578,7 @@
   }
 
   function restoreNominaConfigDefaults() {
-    if (!window.confirm('¿Restaurar los valores de referencia 2026 (CCSS 10.67%, cargas patronales 26.83% y tramos de renta vigentes)?')) return;
+    if (!window.confirm('¿Restaurar los valores de referencia 2026 (CCSS trabajador 10.83%, cargas patronales 26.83%)?')) return;
     var newConfig = Object.assign({}, JSON.parse(JSON.stringify(DEFAULT_NOMINA_CONFIG)), { actualizadoEn: new Date().toISOString() });
     mutateCollection('nominaConfig', function () { return newConfig; }, {
       successMessage: 'Valores restaurados',
@@ -606,37 +588,20 @@
 
   // ---------- Nómina: cálculo ----------
 
-  function calcularRenta(salarioBruto, tramos) {
-    if (!tramos || !tramos.length) return 0;
-    var renta = 0, prev = 0;
-    for (var i = 0; i < tramos.length; i++) {
-      var t = tramos[i];
-      var techo = (t.hasta == null) ? Infinity : Number(t.hasta);
-      if (salarioBruto > prev) {
-        var base = Math.min(salarioBruto, techo) - prev;
-        if (base > 0) renta += base * (Number(t.tasa) || 0) / 100;
-      }
-      prev = techo;
-      if (salarioBruto <= techo) break;
-    }
-    return renta;
-  }
-
   function computePlanillaFila(fila, cfg) {
     var base = Number(fila.salarioBase) || 0;
     var bonos = Number(fila.bonos) || 0;
     var otras = Number(fila.otrasDeducciones) || 0;
     var bruto = base + bonos;
     var ccss = bruto * (Number(cfg.ccssTrabajador) || 0) / 100;
-    var renta = calcularRenta(bruto, cfg.tramos || []);
-    var dedTotal = ccss + renta + otras;
+    var dedTotal = ccss + otras;
     var neto = bruto - dedTotal;
     var cargasPatronales = bruto * (Number(cfg.cargasPatronales) || 0) / 100;
     var costoTotal = bruto + cargasPatronales;
     return {
       colaboradorId: fila.colaboradorId, nombre: fila.nombre, puesto: fila.puesto,
       salarioBase: base, bonos: bonos, otrasDeducciones: otras,
-      salarioBruto: bruto, ccssTrabajador: ccss, renta: renta, deduccionesTotal: dedTotal,
+      salarioBruto: bruto, ccssTrabajador: ccss, deduccionesTotal: dedTotal,
       salarioNeto: neto, cargasPatronales: cargasPatronales, costoTotal: costoTotal,
     };
   }
@@ -690,13 +655,12 @@
     var totals = detalle.reduce(function (acc, d) {
       acc.totalBruto += d.salarioBruto;
       acc.totalCcssTrabajador += d.ccssTrabajador;
-      acc.totalRenta += d.renta;
       acc.totalOtrasDeducciones += d.otrasDeducciones;
       acc.totalNeto += d.salarioNeto;
       acc.totalCargasPatronales += d.cargasPatronales;
       acc.totalCostoPatronal += d.costoTotal;
       return acc;
-    }, { totalBruto: 0, totalCcssTrabajador: 0, totalRenta: 0, totalOtrasDeducciones: 0, totalNeto: 0, totalCargasPatronales: 0, totalCostoPatronal: 0 });
+    }, { totalBruto: 0, totalCcssTrabajador: 0, totalOtrasDeducciones: 0, totalNeto: 0, totalCargasPatronales: 0, totalCostoPatronal: 0 });
 
     var planilla = Object.assign({
       id: genId(),
@@ -733,7 +697,6 @@
     var ccssTotal = planilla.totalCcssTrabajador + planilla.totalCargasPatronales;
     var lineas = ['Salarios: ' + formatMoney(planilla.totalNeto) + ' (pago neto a colaboradores)',
       'CCSS: ' + formatMoney(ccssTotal) + ' (cuota trabajador + cargas patronales)'];
-    if (planilla.totalRenta > 0) lineas.push('Otros: ' + formatMoney(planilla.totalRenta) + ' (renta retenida a remitir a Hacienda)');
     var msg = 'Se registrarán estos egresos con fecha ' + formatDateDisplay(planilla.fechaPago) + ' por la planilla de ' + monthLabel(planilla.periodoMes) + ':\n\n' + lineas.join('\n') + '\n\n¿Continuar?';
     if (!window.confirm(msg)) return;
 
@@ -741,9 +704,6 @@
       { id: genId(), fecha: planilla.fechaPago, tipo: 'Salarios', monto: planilla.totalNeto, nota: 'Planilla ' + monthLabel(planilla.periodoMes) + ' (pago neto)', creadoEn: new Date().toISOString() },
       { id: genId(), fecha: planilla.fechaPago, tipo: 'CCSS', monto: ccssTotal, nota: 'Planilla ' + monthLabel(planilla.periodoMes) + ' (cuota trabajador + patronal)', creadoEn: new Date().toISOString() },
     ];
-    if (planilla.totalRenta > 0) {
-      nuevos.push({ id: genId(), fecha: planilla.fechaPago, tipo: 'Otros', monto: planilla.totalRenta, nota: 'Renta retenida - Planilla ' + monthLabel(planilla.periodoMes), creadoEn: new Date().toISOString() });
-    }
 
     mutateCollection('egresos', function (list) { return list.concat(nuevos); }, {
       onSuccess: function () {
@@ -870,11 +830,10 @@
       y += 6;
       doc.text('Bruto: ' + formatMoneyPdf(d.salarioBruto), 14, y);
       doc.text('CCSS: ' + formatMoneyPdf(d.ccssTrabajador), 80, y);
-      doc.text('Renta: ' + formatMoneyPdf(d.renta), 140, y);
+      doc.text('Otras deducc.: ' + formatMoneyPdf(d.otrasDeducciones), 140, y);
       y += 5;
-      doc.text('Otras deducc.: ' + formatMoneyPdf(d.otrasDeducciones), 14, y);
-      doc.text('Neto a pagar: ' + formatMoneyPdf(d.salarioNeto), 80, y);
-      doc.text('Costo patronal: ' + formatMoneyPdf(d.costoTotal), 140, y);
+      doc.text('Neto a pagar: ' + formatMoneyPdf(d.salarioNeto), 14, y);
+      doc.text('Costo patronal: ' + formatMoneyPdf(d.costoTotal), 80, y);
       y += 8;
     });
 
@@ -885,7 +844,6 @@
     doc.setFontSize(10);
     doc.text('Total bruto: ' + formatMoneyPdf(planilla.totalBruto), 14, y); y += 6;
     doc.text('Total CCSS trabajador: ' + formatMoneyPdf(planilla.totalCcssTrabajador), 14, y); y += 6;
-    doc.text('Total renta retenida: ' + formatMoneyPdf(planilla.totalRenta), 14, y); y += 6;
     doc.text('Total neto a pagar: ' + formatMoneyPdf(planilla.totalNeto), 14, y); y += 6;
     doc.text('Total cargas patronales: ' + formatMoneyPdf(planilla.totalCargasPatronales), 14, y); y += 6;
     doc.text('Costo total patronal (bruto + cargas): ' + formatMoneyPdf(planilla.totalCostoPatronal), 14, y); y += 6;
@@ -1501,28 +1459,6 @@
 
   function renderNominaConfigScreen() {
     var cfg = currentNominaConfig();
-    var tramos = cfg.tramos || DEFAULT_NOMINA_CONFIG.tramos;
-    var rows = '';
-    for (var i = 0; i < 5; i++) {
-      var t = tramos[i] || DEFAULT_NOMINA_CONFIG.tramos[i];
-      if (i < 4) {
-        rows += (
-          '<div class="tramos-row">' +
-            '<span class="lbl">Tramo ' + (i + 1) + '</span>' +
-            '<input name="tramo' + i + '_hasta" type="number" step="1" placeholder="Hasta ₡" value="' + (t.hasta != null ? t.hasta : '') + '"/>' +
-            '<input name="tramo' + i + '_tasa" type="number" step="0.01" placeholder="Tasa %" value="' + t.tasa + '"/>' +
-          '</div>'
-        );
-      } else {
-        rows += (
-          '<div class="tramos-row">' +
-            '<span class="lbl">En adelante</span>' +
-            '<input type="text" value="Sin límite" disabled/>' +
-            '<input name="tramo' + i + '_tasa" type="number" step="0.01" placeholder="Tasa %" value="' + t.tasa + '"/>' +
-          '</div>'
-        );
-      }
-    }
 
     return (
       '<div class="screen">' +
@@ -1540,9 +1476,6 @@
             '<label for="nc-patronal">Cargas sociales patronales (%)</label>' +
             '<input id="nc-patronal" name="cargasPatronales" type="number" step="0.01" min="0" required value="' + cfg.cargasPatronales + '"/>' +
             '<div class="field-hint">Lo que la empresa aporta además del salario bruto (CCSS patronal, FODESAF, INA, IMAS, Banco Popular, etc. No incluye INS, que varía según riesgo).</div>' +
-
-            '<label style="margin-top:20px;">Tramos de renta (impuesto al salario, mensual)</label>' +
-            rows +
 
             '<div class="btn-row" style="margin-top:22px;">' +
               '<button type="submit" class="btn btn-primary">Guardar</button>' +
@@ -1573,7 +1506,6 @@
           '<div class="planilla-calc">' +
             '<div class="row"><span>Salario bruto</span><span>' + escapeHtml(formatMoney(calc.salarioBruto)) + '</span></div>' +
             '<div class="row"><span>CCSS trabajador</span><span>-' + escapeHtml(formatMoney(calc.ccssTrabajador)) + '</span></div>' +
-            '<div class="row"><span>Renta</span><span>-' + escapeHtml(formatMoney(calc.renta)) + '</span></div>' +
             '<div class="row"><span>Otras deducciones</span><span>-' + escapeHtml(formatMoney(calc.otrasDeducciones)) + '</span></div>' +
             '<div class="row neto"><span>Neto a pagar</span><span>' + escapeHtml(formatMoney(calc.salarioNeto)) + '</span></div>' +
             '<div class="row"><span>Cargas patronales</span><span>' + escapeHtml(formatMoney(calc.cargasPatronales)) + '</span></div>' +
@@ -1596,7 +1528,7 @@
           '<h2>Generar planilla</h2>' +
         '</div>' +
         '<div class="screen-body">' +
-          '<p style="color:var(--text-dim);font-size:12.5px;">La app trae el salario de cada colaborador activo. "Bruto" es antes de rebajos; "Neto" es lo que realmente recibe cada persona, después de restar CCSS, renta y otras deducciones.</p>' +
+          '<p style="color:var(--text-dim);font-size:12.5px;">La app trae el salario de cada colaborador activo. "Bruto" es antes de rebajos; "Neto" es lo que realmente recibe cada persona, después de restar CCSS y otras deducciones.</p>' +
           '<div class="card">' +
             '<label style="margin-top:0;">Período (mes)</label>' +
             '<input id="pf-periodo" type="month" value="' + escapeHtml(draft.periodoMes) + '"/>' +
@@ -1631,7 +1563,6 @@
             (d.bonos ? '<div class="row"><span>Bonos / extras</span><span>' + escapeHtml(formatMoney(d.bonos)) + '</span></div>' : '') +
             '<div class="row"><span>Salario bruto</span><span>' + escapeHtml(formatMoney(d.salarioBruto)) + '</span></div>' +
             '<div class="row"><span>CCSS trabajador</span><span>-' + escapeHtml(formatMoney(d.ccssTrabajador)) + '</span></div>' +
-            '<div class="row"><span>Renta</span><span>-' + escapeHtml(formatMoney(d.renta)) + '</span></div>' +
             (d.otrasDeducciones ? '<div class="row"><span>Otras deducciones</span><span>-' + escapeHtml(formatMoney(d.otrasDeducciones)) + '</span></div>' : '') +
             '<div class="row neto"><span>Neto pagado</span><span>' + escapeHtml(formatMoney(d.salarioNeto)) + '</span></div>' +
             '<div class="row"><span>Cargas patronales</span><span>' + escapeHtml(formatMoney(d.cargasPatronales)) + '</span></div>' +
@@ -1656,7 +1587,6 @@
           '<div class="card">' +
             '<div class="grand-total-row"><span>Total bruto</span><span>' + escapeHtml(formatMoney(p.totalBruto)) + '</span></div>' +
             '<div class="grand-total-row" style="border-top:none;padding-top:4px;"><span>Total CCSS trabajador</span><span>' + escapeHtml(formatMoney(p.totalCcssTrabajador)) + '</span></div>' +
-            '<div class="grand-total-row" style="border-top:none;padding-top:4px;"><span>Total renta</span><span>' + escapeHtml(formatMoney(p.totalRenta)) + '</span></div>' +
             '<div class="grand-total-row" style="border-top:none;padding-top:4px;"><span>Total neto pagado</span><span>' + escapeHtml(formatMoney(p.totalNeto)) + '</span></div>' +
             '<div class="grand-total-row" style="border-top:none;padding-top:4px;"><span>Total cargas patronales</span><span>' + escapeHtml(formatMoney(p.totalCargasPatronales)) + '</span></div>' +
             '<div class="grand-total-row" style="border-top:none;padding-top:4px;"><span>Costo total patronal</span><span>' + escapeHtml(formatMoney(p.totalCostoPatronal)) + '</span></div>' +
