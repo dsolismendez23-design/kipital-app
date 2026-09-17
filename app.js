@@ -772,7 +772,21 @@
     state.configError = null;
     state.config = testConfig;
     render();
-    fetchCollection('ingresos').then(function (data) {
+    // Verifica primero que el repositorio exista de verdad con ese usuario/token
+    // (a diferencia de leer una colección, que trata 404 como "todavía vacía").
+    // Así se detecta de inmediato un error de tipeo en el usuario o el repositorio,
+    // en vez de que la conexión "parezca" exitosa y falle después al guardar algo.
+    ghRequest(testConfig, '/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo)).then(function (res) {
+      if (res.status === 404) {
+        throw new ApiError(404, 'No existe el repositorio "' + repo + '" en la cuenta "' + owner + '". Revisa que ambos estén escritos exactamente igual, sin errores de tipeo (mayúsculas/minúsculas no importan, pero cada letra sí).');
+      }
+      if (!res.ok) {
+        return safeJson(res).then(function (err) {
+          throw new ApiError(res.status, (err && err.message) || ('Error ' + res.status));
+        });
+      }
+      return fetchCollection('ingresos');
+    }).then(function (data) {
       persistConfig(testConfig);
       state.data.ingresos.value = data.value;
       state.data.ingresos.sha = data.sha;
@@ -787,7 +801,7 @@
     }).catch(function (e) {
       state.config = prevConfig;
       state.configVerifying = false;
-      state.configError = friendlyError(e);
+      state.configError = (e instanceof ApiError && e.status === 404 && e.message.indexOf('No existe el repositorio') === 0) ? e.message : friendlyError(e);
       render();
     });
   }
