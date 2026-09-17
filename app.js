@@ -1659,6 +1659,13 @@
     );
   }
 
+  function tokenFingerprint(t) {
+    if (!t) return '(vacío)';
+    var len = t.length;
+    if (len <= 16) return t + ' (' + len + ' caracteres)';
+    return t.slice(0, 12) + '…' + t.slice(-4) + ' (' + len + ' caracteres)';
+  }
+
   function renderConfigScreen() {
     var cfg = state.config || {};
     return (
@@ -1669,6 +1676,17 @@
         '</div>' +
         '<div class="screen-body">' +
           '<p style="color:var(--text-dim);font-size:13px;">Conecta esta app al repositorio de GitHub donde se guardan los datos de KI-PITAL. Solo se hace una vez por dispositivo.</p>' +
+
+          (state.config ? (
+            '<div class="card" style="border-color:var(--accent);">' +
+              '<label style="margin-top:0;">Este dispositivo está conectado con:</label>' +
+              '<div class="report-row"><div class="name">Usuario</div><div class="amt" style="font-size:13px;">' + escapeHtml(cfg.owner) + '</div></div>' +
+              '<div class="report-row"><div class="name">Repositorio</div><div class="amt" style="font-size:13px;">' + escapeHtml(cfg.repo) + '</div></div>' +
+              '<div class="report-row"><div class="name">Rama</div><div class="amt" style="font-size:13px;">' + escapeHtml(cfg.branch) + '</div></div>' +
+              '<div class="report-row"><div class="name">Token (huella)</div><div class="amt" style="font-size:11.5px;font-family:monospace;">' + escapeHtml(tokenFingerprint(cfg.token)) + '</div></div>' +
+              '<div class="field-hint">Compara esto con lo que usaste en la página de diagnóstico: mismo usuario, repositorio, rama, y la misma cantidad de caracteres del token.</div>' +
+            '</div>'
+          ) : '') +
 
           '<details class="help-box">' +
             '<summary>¿Cómo consigo el token de acceso?</summary>' +
