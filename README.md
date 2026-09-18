@@ -8,11 +8,11 @@ Fondo negro, letras en dorado.
 
 - **Ingresos**: fecha, tipo (Tarjetas / Transferencia / Efectivo) y monto. Incluye filtro por período y desglose por tipo.
 - **Egresos**: fecha, tipo (Alquiler, Salarios, CCSS, Agua, Luz, Internet, Insumos, Otros) y monto. Incluye filtro por período y desglose por tipo.
-- **RRHH → Colaboradores**: datos personales (nombre, cédula, teléfono, correo, dirección), puesto, salario, tipo de pago, fecha de ingreso y estado (activo/inactivo).
+- **RRHH → Colaboradores**: datos personales (nombre, cédula, teléfono, correo, dirección), puesto, salario, tipo de pago, fecha de ingreso, cuenta bancaria, valor de la hora normal y valor de la hora extra, y estado (activo/inactivo).
 - **RRHH → Nómina**: cálculo y procesamiento de planillas.
   - **Parámetros de nómina** (icono ⚙): porcentaje de CCSS del trabajador y cargas sociales patronales. Vienen precargados con los valores de referencia de Costa Rica para 2026 (CCSS trabajador 10.83%, cargas patronales 26.83%) y se pueden ajustar cuando cambien por ley.
-  - **Generar planilla**: elige el mes y la fecha de pago; la app trae automáticamente a los colaboradores activos con su salario base, permite agregar bonos/horas extra y otras deducciones por persona, y calcula en vivo el salario bruto, la deducción de CCSS, el neto a pagar y el costo patronal (incluye cargas sociales).
-  - Cada planilla guardada queda en un historial, se puede ver en detalle, descargar/compartir en PDF, y registrar automáticamente como egresos (Salarios = neto pagado, CCSS = cuota trabajador + cargas patronales).
+  - **Generar planilla**: elige el mes y la fecha de pago; la app trae automáticamente a los colaboradores activos con su salario base. Por persona se puede agregar: tiempo adicional trabajado (horas a tarifa normal), horas extra (a tarifa extra), días feriados trabajados (se pagan doble), comisiones/otros ingresos, deducción por ausencias, deducción por compra de productos y otras deducciones. Calcula en vivo el salario bruto, la deducción de CCSS, el neto a pagar y el costo patronal (incluye cargas sociales).
+  - Cada planilla guardada queda en un historial, se puede ver en detalle, descargar un resumen general en PDF, generar el **comprobante de salario individual** de cada colaborador (PDF con su desglose completo, listo para compartir), y registrar automáticamente como egresos (Salarios = neto pagado, CCSS = cuota trabajador + cargas patronales).
 
 ## Cómo funciona
 

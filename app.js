@@ -536,6 +536,8 @@
     var tipoPago = fd.get('tipoPago') || 'Mensual';
     var fechaIngreso = fd.get('fechaIngreso');
     var cuentaBancaria = (fd.get('cuentaBancaria') || '').trim();
+    var precioHoraNormal = parseFloat(fd.get('precioHoraNormal'));
+    var precioHoraExtra = parseFloat(fd.get('precioHoraExtra'));
     var estado = fd.get('estado') === 'on' ? 'activo' : 'inactivo';
     var fechaSalida = estado === 'inactivo' ? (fd.get('fechaSalida') || '').trim() : '';
     if (!nombre || !puesto || isNaN(salario) || salario <= 0 || !fechaIngreso) {
@@ -543,7 +545,12 @@
       return;
     }
     var editingId = state.editingId;
-    var payload = { nombre: nombre, cedula: cedula, telefono: telefono, email: email, direccion: direccion, puesto: puesto, salario: salario, tipoPago: tipoPago, fechaIngreso: fechaIngreso, cuentaBancaria: cuentaBancaria, estado: estado, fechaSalida: fechaSalida };
+    var payload = {
+      nombre: nombre, cedula: cedula, telefono: telefono, email: email, direccion: direccion, puesto: puesto,
+      salario: salario, tipoPago: tipoPago, fechaIngreso: fechaIngreso, cuentaBancaria: cuentaBancaria,
+      precioHoraNormal: isNaN(precioHoraNormal) ? 0 : precioHoraNormal, precioHoraExtra: isNaN(precioHoraExtra) ? 0 : precioHoraExtra,
+      estado: estado, fechaSalida: fechaSalida,
+    };
     mutateCollection('colaboradores', function (list) {
       if (editingId) {
         return list.map(function (c) { return c.id === editingId ? Object.assign({}, c, payload) : c; });
@@ -590,17 +597,33 @@
 
   function computePlanillaFila(fila, cfg) {
     var base = Number(fila.salarioBase) || 0;
-    var bonos = Number(fila.bonos) || 0;
+    var horasNormales = Number(fila.horasNormales) || 0;
+    var horasExtra = Number(fila.horasExtra) || 0;
+    var diasFeriados = Number(fila.diasFeriados) || 0;
+    var comisionesOtros = Number(fila.comisionesOtros) || 0;
+    var deduccionAusencias = Number(fila.deduccionAusencias) || 0;
+    var deduccionProductos = Number(fila.deduccionProductos) || 0;
     var otras = Number(fila.otrasDeducciones) || 0;
-    var bruto = base + bonos;
+
+    var montoHorasNormales = horasNormales * (Number(fila.precioHoraNormal) || 0);
+    var montoHorasExtra = horasExtra * (Number(fila.precioHoraExtra) || 0);
+    var valorDiaFeriado = (base / 30) * 2;
+    var montoFeriados = diasFeriados * valorDiaFeriado;
+
+    var bruto = base + montoHorasNormales + montoHorasExtra + montoFeriados + comisionesOtros;
     var ccss = bruto * (Number(cfg.ccssTrabajador) || 0) / 100;
-    var dedTotal = ccss + otras;
+    var dedTotal = ccss + deduccionAusencias + deduccionProductos + otras;
     var neto = bruto - dedTotal;
     var cargasPatronales = bruto * (Number(cfg.cargasPatronales) || 0) / 100;
     var costoTotal = bruto + cargasPatronales;
     return {
-      colaboradorId: fila.colaboradorId, nombre: fila.nombre, puesto: fila.puesto,
-      salarioBase: base, bonos: bonos, otrasDeducciones: otras,
+      colaboradorId: fila.colaboradorId, nombre: fila.nombre, puesto: fila.puesto, cedula: fila.cedula,
+      salarioBase: base,
+      horasNormales: horasNormales, montoHorasNormales: montoHorasNormales,
+      horasExtra: horasExtra, montoHorasExtra: montoHorasExtra,
+      diasFeriados: diasFeriados, montoFeriados: montoFeriados,
+      comisionesOtros: comisionesOtros,
+      deduccionAusencias: deduccionAusencias, deduccionProductos: deduccionProductos, otrasDeducciones: otras,
       salarioBruto: bruto, ccssTrabajador: ccss, deduccionesTotal: dedTotal,
       salarioNeto: neto, cargasPatronales: cargasPatronales, costoTotal: costoTotal,
     };
@@ -628,7 +651,12 @@
     return colaboradores
       .filter(function (c) { return c.estado !== 'inactivo' && (!c.fechaIngreso || c.fechaIngreso <= hasta); })
       .map(function (c) {
-        return { colaboradorId: c.id, nombre: c.nombre, puesto: c.puesto, salarioBase: c.salario, bonos: 0, otrasDeducciones: 0 };
+        return {
+          colaboradorId: c.id, nombre: c.nombre, puesto: c.puesto, cedula: c.cedula,
+          salarioBase: c.salario, precioHoraNormal: c.precioHoraNormal || 0, precioHoraExtra: c.precioHoraExtra || 0,
+          horasNormales: 0, horasExtra: 0, diasFeriados: 0, comisionesOtros: 0,
+          deduccionAusencias: 0, deduccionProductos: 0, otrasDeducciones: 0,
+        };
       });
   }
 
@@ -655,12 +683,12 @@
     var totals = detalle.reduce(function (acc, d) {
       acc.totalBruto += d.salarioBruto;
       acc.totalCcssTrabajador += d.ccssTrabajador;
-      acc.totalOtrasDeducciones += d.otrasDeducciones;
+      acc.totalDeducciones += d.deduccionesTotal;
       acc.totalNeto += d.salarioNeto;
       acc.totalCargasPatronales += d.cargasPatronales;
       acc.totalCostoPatronal += d.costoTotal;
       return acc;
-    }, { totalBruto: 0, totalCcssTrabajador: 0, totalOtrasDeducciones: 0, totalNeto: 0, totalCargasPatronales: 0, totalCostoPatronal: 0 });
+    }, { totalBruto: 0, totalCcssTrabajador: 0, totalDeducciones: 0, totalNeto: 0, totalCargasPatronales: 0, totalCostoPatronal: 0 });
 
     var planilla = Object.assign({
       id: genId(),
@@ -830,7 +858,7 @@
       y += 6;
       doc.text('Bruto: ' + formatMoneyPdf(d.salarioBruto), 14, y);
       doc.text('CCSS: ' + formatMoneyPdf(d.ccssTrabajador), 80, y);
-      doc.text('Otras deducc.: ' + formatMoneyPdf(d.otrasDeducciones), 140, y);
+      doc.text('Otras deducc.: ' + formatMoneyPdf(d.deduccionesTotal - d.ccssTrabajador), 140, y);
       y += 5;
       doc.text('Neto a pagar: ' + formatMoneyPdf(d.salarioNeto), 14, y);
       doc.text('Costo patronal: ' + formatMoneyPdf(d.costoTotal), 80, y);
@@ -844,6 +872,7 @@
     doc.setFontSize(10);
     doc.text('Total bruto: ' + formatMoneyPdf(planilla.totalBruto), 14, y); y += 6;
     doc.text('Total CCSS trabajador: ' + formatMoneyPdf(planilla.totalCcssTrabajador), 14, y); y += 6;
+    doc.text('Total deducciones: ' + formatMoneyPdf(planilla.totalDeducciones), 14, y); y += 6;
     doc.text('Total neto a pagar: ' + formatMoneyPdf(planilla.totalNeto), 14, y); y += 6;
     doc.text('Total cargas patronales: ' + formatMoneyPdf(planilla.totalCargasPatronales), 14, y); y += 6;
     doc.text('Costo total patronal (bruto + cargas): ' + formatMoneyPdf(planilla.totalCostoPatronal), 14, y); y += 6;
@@ -864,6 +893,95 @@
     var file = new File([blob], filename, { type: 'application/pdf' });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       navigator.share({ files: [file], title: 'Planilla KI-PITAL', text: 'Planilla de nómina KI-PITAL' }).catch(function () {});
+    } else {
+      doc.save(filename);
+    }
+  }
+
+  // ---------- Comprobante de salario individual ----------
+
+  function findColaboradorCedula(colaboradorId, fallback) {
+    if (fallback) return fallback;
+    var c = (state.data.colaboradores.value || []).find(function (x) { return x.id === colaboradorId; });
+    return (c && c.cedula) || '';
+  }
+
+  function buildComprobantePdfDoc(planilla, d) {
+    var doc = new jspdf.jsPDF();
+    var y = 20;
+
+    doc.setFontSize(16);
+    doc.text('KI-PITAL', 14, y); y += 7;
+    doc.setFontSize(13);
+    doc.text('Comprobante de pago de salario', 14, y); y += 10;
+
+    doc.setFontSize(10);
+    doc.text('Colaborador: ' + String(d.nombre), 14, y); y += 6;
+    doc.text('Puesto: ' + String(d.puesto || ''), 14, y); y += 6;
+    var cedula = findColaboradorCedula(d.colaboradorId, d.cedula);
+    if (cedula) { doc.text('Cédula: ' + cedula, 14, y); y += 6; }
+    doc.text('Período de pago: ' + monthLabel(planilla.periodoMes), 14, y); y += 6;
+    doc.text('Fecha de pago: ' + formatDateDisplay(planilla.fechaPago), 14, y); y += 6;
+    doc.text('Emitido: ' + new Date().toLocaleString('es-CR'), 14, y); y += 12;
+
+    function line(label, amount, bold) {
+      doc.setFontSize(bold ? 12 : 10);
+      doc.text(label, 14, y);
+      doc.text(formatMoneyPdf(amount), 196, y, { align: 'right' });
+      y += bold ? 8 : 6.5;
+    }
+
+    doc.setFontSize(11);
+    doc.text('Ingresos', 14, y); y += 7;
+    line('Salario base', d.salarioBase);
+    if (d.montoHorasNormales) line('Tiempo adicional (' + d.horasNormales + ' horas)', d.montoHorasNormales);
+    if (d.montoHorasExtra) line('Horas extra (' + d.horasExtra + ' horas)', d.montoHorasExtra);
+    if (d.montoFeriados) line('Días feriados trabajados (' + d.diasFeriados + ')', d.montoFeriados);
+    if (d.comisionesOtros) line('Comisiones / otros ingresos', d.comisionesOtros);
+    y += 2;
+    line('Salario bruto', d.salarioBruto, true);
+    y += 4;
+
+    doc.setFontSize(11);
+    doc.text('Deducciones', 14, y); y += 7;
+    line('CCSS trabajador', d.ccssTrabajador);
+    if (d.deduccionAusencias) line('Deducción por ausencias', d.deduccionAusencias);
+    if (d.deduccionProductos) line('Deducción por compra de productos', d.deduccionProductos);
+    if (d.otrasDeducciones) line('Otras deducciones', d.otrasDeducciones);
+    y += 2;
+    line('Total deducciones', d.deduccionesTotal, true);
+    y += 6;
+
+    doc.setFontSize(14);
+    doc.text('NETO A PAGAR', 14, y);
+    doc.text(formatMoneyPdf(d.salarioNeto), 196, y, { align: 'right' });
+    y += 20;
+
+    doc.setFontSize(9);
+    doc.text('_________________________', 14, y);
+    doc.text('_________________________', 110, y);
+    y += 5;
+    doc.text('Firma del colaborador', 14, y);
+    doc.text('Firma / sello de la empresa', 110, y);
+
+    return doc;
+  }
+
+  function downloadComprobantePdf(planillaId, colaboradorId) {
+    if (typeof jspdf === 'undefined') {
+      showToast('No se pudo generar el PDF (sin conexión a internet la primera vez).', true);
+      return;
+    }
+    var planilla = findPlanilla(planillaId);
+    if (!planilla) return;
+    var d = planilla.detalle.find(function (x) { return x.colaboradorId === colaboradorId; });
+    if (!d) return;
+    var doc = buildComprobantePdfDoc(planilla, d);
+    var filename = 'kipital-comprobante-' + (d.nombre || 'colaborador').replace(/[^a-z0-9]+/gi, '-').toLowerCase() + '-' + planilla.periodoMes + '.pdf';
+    var blob = doc.output('blob');
+    var file = new File([blob], filename, { type: 'application/pdf' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      navigator.share({ files: [file], title: 'Comprobante de salario', text: 'Comprobante de salario - ' + d.nombre }).catch(function () {});
     } else {
       doc.save(filename);
     }
@@ -1438,6 +1556,13 @@
             '<label for="c-cuenta">Cuenta bancaria (para depósito de salario)</label>' +
             '<input id="c-cuenta" name="cuentaBancaria" type="text" placeholder="IBAN o número de cuenta" value="' + escapeHtml(editing ? (editing.cuentaBancaria || '') : '') + '"/>' +
 
+            '<label for="c-hora-normal">Valor de la hora normal (₡, opcional)</label>' +
+            '<input id="c-hora-normal" name="precioHoraNormal" type="number" step="0.01" min="0" inputmode="decimal" placeholder="0.00" value="' + (editing && editing.precioHoraNormal ? editing.precioHoraNormal : '') + '"/>' +
+
+            '<label for="c-hora-extra">Valor de la hora extra (₡, opcional)</label>' +
+            '<input id="c-hora-extra" name="precioHoraExtra" type="number" step="0.01" min="0" inputmode="decimal" placeholder="0.00" value="' + (editing && editing.precioHoraExtra ? editing.precioHoraExtra : '') + '"/>' +
+            '<div class="field-hint">Se usan en Nómina para calcular tiempo adicional y horas extra de este colaborador.</div>' +
+
             '<div class="checkbox-row">' +
               '<input id="c-estado" name="estado" type="checkbox" ' + (activo ? 'checked' : '') + '/>' +
               '<label for="c-estado">Colaborador activo</label>' +
@@ -1494,19 +1619,39 @@
 
     var filasHtml = draft.filas.map(function (f, idx) {
       var calc = computePlanillaFila(f, cfg);
+      var tarifaNormal = Number(f.precioHoraNormal) || 0;
+      var tarifaExtra = Number(f.precioHoraExtra) || 0;
       return (
         '<div class="planilla-emp-row">' +
           '<div class="name">' + escapeHtml(f.nombre) + '</div>' +
           '<div class="puesto">' + escapeHtml(f.puesto || '') + '</div>' +
-          '<div class="planilla-grid">' +
-            '<div><label style="margin-top:0;">Salario base (₡)</label><input id="pf-base-' + idx + '" data-idx="' + idx + '" data-field="salarioBase" type="number" step="0.01" value="' + f.salarioBase + '"/></div>' +
-            '<div><label style="margin-top:0;">Bonos / horas extra (₡)</label><input id="pf-bonos-' + idx + '" data-idx="' + idx + '" data-field="bonos" type="number" step="0.01" value="' + f.bonos + '"/></div>' +
-            '<div><label style="margin-top:0;">Otras deducciones (₡)</label><input id="pf-otras-' + idx + '" data-idx="' + idx + '" data-field="otrasDeducciones" type="number" step="0.01" value="' + f.otrasDeducciones + '"/></div>' +
-          '</div>' +
+
+          '<label style="margin-top:10px;">Salario base (₡)</label>' +
+          '<input id="pf-base-' + idx + '" data-idx="' + idx + '" data-field="salarioBase" type="number" step="0.01" value="' + f.salarioBase + '"/>' +
+
+          '<label style="margin-top:14px;color:var(--accent);">Tiempo adicional y feriados</label>' +
+          '<label style="margin-top:8px;">Tiempo adicional, horas (tarifa normal' + (tarifaNormal ? ': ' + escapeHtml(formatMoney(tarifaNormal)) + '/h' : ' — sin tarifa cargada') + ')</label>' +
+          '<input id="pf-hn-' + idx + '" data-idx="' + idx + '" data-field="horasNormales" type="number" step="0.25" min="0" value="' + f.horasNormales + '"/>' +
+          '<label>Horas extra (tarifa extra' + (tarifaExtra ? ': ' + escapeHtml(formatMoney(tarifaExtra)) + '/h' : ' — sin tarifa cargada') + ')</label>' +
+          '<input id="pf-he-' + idx + '" data-idx="' + idx + '" data-field="horasExtra" type="number" step="0.25" min="0" value="' + f.horasExtra + '"/>' +
+          '<label>Días feriados trabajados</label>' +
+          '<input id="pf-df-' + idx + '" data-idx="' + idx + '" data-field="diasFeriados" type="number" step="1" min="0" value="' + f.diasFeriados + '"/>' +
+          '<div class="field-hint">Se paga doble el día feriado trabajado (salario base ÷ 30 × 2).</div>' +
+          '<label>Comisiones / otros ingresos (₡)</label>' +
+          '<input id="pf-co-' + idx + '" data-idx="' + idx + '" data-field="comisionesOtros" type="number" step="0.01" min="0" value="' + f.comisionesOtros + '"/>' +
+
+          '<label style="margin-top:14px;color:var(--danger);">Deducciones</label>' +
+          '<label style="margin-top:8px;">Deducción por ausencias (₡)</label>' +
+          '<input id="pf-da-' + idx + '" data-idx="' + idx + '" data-field="deduccionAusencias" type="number" step="0.01" min="0" value="' + f.deduccionAusencias + '"/>' +
+          '<label>Deducción por compra de productos (₡)</label>' +
+          '<input id="pf-dp-' + idx + '" data-idx="' + idx + '" data-field="deduccionProductos" type="number" step="0.01" min="0" value="' + f.deduccionProductos + '"/>' +
+          '<label>Otras deducciones (₡)</label>' +
+          '<input id="pf-otras-' + idx + '" data-idx="' + idx + '" data-field="otrasDeducciones" type="number" step="0.01" min="0" value="' + f.otrasDeducciones + '"/>' +
+
           '<div class="planilla-calc">' +
             '<div class="row"><span>Salario bruto</span><span>' + escapeHtml(formatMoney(calc.salarioBruto)) + '</span></div>' +
             '<div class="row"><span>CCSS trabajador</span><span>-' + escapeHtml(formatMoney(calc.ccssTrabajador)) + '</span></div>' +
-            '<div class="row"><span>Otras deducciones</span><span>-' + escapeHtml(formatMoney(calc.otrasDeducciones)) + '</span></div>' +
+            '<div class="row"><span>Total deducciones</span><span>-' + escapeHtml(formatMoney(calc.deduccionesTotal)) + '</span></div>' +
             '<div class="row neto"><span>Neto a pagar</span><span>' + escapeHtml(formatMoney(calc.salarioNeto)) + '</span></div>' +
             '<div class="row"><span>Cargas patronales</span><span>' + escapeHtml(formatMoney(calc.cargasPatronales)) + '</span></div>' +
             '<div class="row"><span>Costo total patronal</span><span>' + escapeHtml(formatMoney(calc.costoTotal)) + '</span></div>' +
@@ -1517,9 +1662,9 @@
     }).join('');
 
     var totals = draft.filas.map(function (f) { return computePlanillaFila(f, cfg); }).reduce(function (acc, d) {
-      acc.bruto += d.salarioBruto; acc.neto += d.salarioNeto; acc.cargas += d.cargasPatronales; acc.costo += d.costoTotal;
+      acc.bruto += d.salarioBruto; acc.deducciones += d.deduccionesTotal; acc.neto += d.salarioNeto; acc.cargas += d.cargasPatronales; acc.costo += d.costoTotal;
       return acc;
-    }, { bruto: 0, neto: 0, cargas: 0, costo: 0 });
+    }, { bruto: 0, deducciones: 0, neto: 0, cargas: 0, costo: 0 });
 
     return (
       '<div class="screen">' +
@@ -1539,6 +1684,7 @@
           (draft.filas.length ? (
             '<div class="card">' +
               '<div class="grand-total-row"><span>Total bruto</span><span>' + escapeHtml(formatMoney(totals.bruto)) + '</span></div>' +
+              '<div class="grand-total-row" style="border-top:none;padding-top:4px;"><span>Total deducciones</span><span>' + escapeHtml(formatMoney(totals.deducciones)) + '</span></div>' +
               '<div class="grand-total-row" style="border-top:none;padding-top:4px;"><span>Total neto a pagar</span><span>' + escapeHtml(formatMoney(totals.neto)) + '</span></div>' +
               '<div class="grand-total-row" style="border-top:none;padding-top:4px;"><span>Total cargas patronales</span><span>' + escapeHtml(formatMoney(totals.cargas)) + '</span></div>' +
               '<div class="grand-total-row" style="border-top:none;padding-top:4px;"><span>Costo total patronal</span><span>' + escapeHtml(formatMoney(totals.costo)) + '</span></div>' +
@@ -1560,14 +1706,20 @@
           '<div class="puesto">' + escapeHtml(d.puesto || '') + '</div>' +
           '<div class="planilla-calc">' +
             '<div class="row"><span>Salario base</span><span>' + escapeHtml(formatMoney(d.salarioBase)) + '</span></div>' +
-            (d.bonos ? '<div class="row"><span>Bonos / extras</span><span>' + escapeHtml(formatMoney(d.bonos)) + '</span></div>' : '') +
+            (d.montoHorasNormales ? '<div class="row"><span>Tiempo adicional (' + d.horasNormales + 'h)</span><span>' + escapeHtml(formatMoney(d.montoHorasNormales)) + '</span></div>' : '') +
+            (d.montoHorasExtra ? '<div class="row"><span>Horas extra (' + d.horasExtra + 'h)</span><span>' + escapeHtml(formatMoney(d.montoHorasExtra)) + '</span></div>' : '') +
+            (d.montoFeriados ? '<div class="row"><span>Días feriados (' + d.diasFeriados + ')</span><span>' + escapeHtml(formatMoney(d.montoFeriados)) + '</span></div>' : '') +
+            (d.comisionesOtros ? '<div class="row"><span>Comisiones / otros</span><span>' + escapeHtml(formatMoney(d.comisionesOtros)) + '</span></div>' : '') +
             '<div class="row"><span>Salario bruto</span><span>' + escapeHtml(formatMoney(d.salarioBruto)) + '</span></div>' +
             '<div class="row"><span>CCSS trabajador</span><span>-' + escapeHtml(formatMoney(d.ccssTrabajador)) + '</span></div>' +
+            (d.deduccionAusencias ? '<div class="row"><span>Deducción por ausencias</span><span>-' + escapeHtml(formatMoney(d.deduccionAusencias)) + '</span></div>' : '') +
+            (d.deduccionProductos ? '<div class="row"><span>Deducción por productos</span><span>-' + escapeHtml(formatMoney(d.deduccionProductos)) + '</span></div>' : '') +
             (d.otrasDeducciones ? '<div class="row"><span>Otras deducciones</span><span>-' + escapeHtml(formatMoney(d.otrasDeducciones)) + '</span></div>' : '') +
             '<div class="row neto"><span>Neto pagado</span><span>' + escapeHtml(formatMoney(d.salarioNeto)) + '</span></div>' +
             '<div class="row"><span>Cargas patronales</span><span>' + escapeHtml(formatMoney(d.cargasPatronales)) + '</span></div>' +
             '<div class="row"><span>Costo total patronal</span><span>' + escapeHtml(formatMoney(d.costoTotal)) + '</span></div>' +
           '</div>' +
+          '<div class="btn-row" style="margin-top:10px;"><button type="button" class="small-btn" data-action="download-comprobante" data-planilla-id="' + escapeHtml(p.id) + '" data-colab-id="' + escapeHtml(d.colaboradorId) + '">&#128196; Comprobante de salario</button></div>' +
         '</div>'
       );
     }).join('');
@@ -1587,6 +1739,7 @@
           '<div class="card">' +
             '<div class="grand-total-row"><span>Total bruto</span><span>' + escapeHtml(formatMoney(p.totalBruto)) + '</span></div>' +
             '<div class="grand-total-row" style="border-top:none;padding-top:4px;"><span>Total CCSS trabajador</span><span>' + escapeHtml(formatMoney(p.totalCcssTrabajador)) + '</span></div>' +
+            '<div class="grand-total-row" style="border-top:none;padding-top:4px;"><span>Total deducciones</span><span>' + escapeHtml(formatMoney(p.totalDeducciones)) + '</span></div>' +
             '<div class="grand-total-row" style="border-top:none;padding-top:4px;"><span>Total neto pagado</span><span>' + escapeHtml(formatMoney(p.totalNeto)) + '</span></div>' +
             '<div class="grand-total-row" style="border-top:none;padding-top:4px;"><span>Total cargas patronales</span><span>' + escapeHtml(formatMoney(p.totalCargasPatronales)) + '</span></div>' +
             '<div class="grand-total-row" style="border-top:none;padding-top:4px;"><span>Costo total patronal</span><span>' + escapeHtml(formatMoney(p.totalCostoPatronal)) + '</span></div>' +
@@ -1713,6 +1866,7 @@
     else if (action === 'view-planilla') viewPlanilla(target.dataset.id);
     else if (action === 'delete-planilla') deletePlanilla(target.dataset.id);
     else if (action === 'download-planilla-pdf') downloadOrSharePlanillaPdf(target.dataset.id);
+    else if (action === 'download-comprobante') downloadComprobantePdf(target.dataset.planillaId, target.dataset.colabId);
     else if (action === 'registrar-planilla-egresos') registrarPlanillaEnEgresos(target.dataset.id);
     else if (action === 'close-screen') closeScreen();
     else if (action === 'open-config') openConfig();
