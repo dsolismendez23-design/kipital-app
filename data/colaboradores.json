@@ -1,1 +1,20 @@
-[]
+[
+  {
+    "id": "mubfnm6nz2tteq",
+    "creadoEn": "2026-09-21T16:01:44.207Z",
+    "nombre": "Abb",
+    "cedula": "1111",
+    "telefono": "1111",
+    "email": "",
+    "direccion": "Hds",
+    "puesto": "Abaja",
+    "salario": 100,
+    "tipoPago": "Mensual",
+    "fechaIngreso": "2026-09-03",
+    "cuentaBancaria": "",
+    "precioHoraNormal": 100,
+    "precioHoraExtra": 100,
+    "estado": "activo",
+    "fechaSalida": ""
+  }
+]
